@@ -38,7 +38,11 @@ __email__ = 'm.swain@me.com'
 __version__ = '1.0.4'
 __license__ = 'MIT'
 
-API_BASE = 'https://pubchem.ncbi.nlm.nih.gov/rest/pug'
+PUG_API_BASE = 'https://pubchem.ncbi.nlm.nih.gov/rest/pug'
+#SDQ_API_BASE = 'https://pubchem.ncbi.nlm.nih.gov/sdq/sdqagent.cgi?'
+#SDQ_API_BASE = 'https://pubchem.ncbi.nlm.nih.gov/sdq/sdqagent.cgi?infmt=json&outfmt=csv&'
+SDQ_API_BASE = 'https://pubchem.ncbi.nlm.nih.gov/sdq/sdqagent.cgi?infmt=json'
+API_BASE = {"pug":PUG_API_BASE, "sdq":SDQ_API_BASE}
 
 log = logging.getLogger('pubchempy')
 log.addHandler(logging.NullHandler())
@@ -251,19 +255,26 @@ def request(identifier, namespace='cid', domain='compound', operation=None, outp
     # Filter None values from kwargs
     kwargs = dict((k, v) for k, v in kwargs.items() if v is not None)
     # Build API URL
-    urlid, postdata = None, None
-    if namespace == 'sourceid':
-        identifier = identifier.replace('/', '.')
-    if namespace in ['listkey', 'formula', 'sourceid'] \
-            or searchtype == 'xref' \
-            or (searchtype and namespace == 'cid') or domain == 'sources':
-        urlid = quote(identifier.encode('utf8'))
+    urlid, postdata, apiurl = None, None, None
+    if 'api' not in kwargs or ('api' in kwargs and 'api' == 'pug'):
+        if namespace == 'sourceid':
+            identifier = identifier.replace('/', '.')
+        if namespace in ['listkey', 'formula', 'sourceid'] \
+                or searchtype == 'xref' \
+                or (searchtype and namespace == 'cid') or domain == 'sources':
+            urlid = quote(identifier.encode('utf8'))
+        else:
+            postdata = urlencode([(namespace, identifier)]).encode('utf8')
+        comps = filter(None, [API_BASE['pug'], domain, searchtype, namespace, urlid, operation, output])
+        apiurl = '/'.join(comps)
+        if kwargs:
+            apiurl += '?%s' % urlencode(kwargs)
     else:
-        postdata = urlencode([(namespace, identifier)]).encode('utf8')
-    comps = filter(None, [API_BASE, domain, searchtype, namespace, urlid, operation, output])
-    apiurl = '/'.join(comps)
-    if kwargs:
-        apiurl += '?%s' % urlencode(kwargs)
+        print("SDQ query class developed by Greg Schwing")
+        print(kwargs.items())
+        q = SDQQuery(identifier,namespace,**kwargs)
+        apiurl=q.query
+    
     # Make request
     try:
         log.debug('Request URL: %s', apiurl)
@@ -296,6 +307,8 @@ def get(identifier, namespace='cid', domain='compound', operation=None, output='
 def get_json(identifier, namespace='cid', domain='compound', operation=None, searchtype=None, **kwargs):
     """Request wrapper that automatically parses JSON response and supresses NotFoundError."""
     try:
+        print(identifier, namespace, searchtype)
+        print(kwargs)
         return json.loads(get(identifier, namespace, domain, operation, 'JSON', searchtype, **kwargs).decode())
     except NotFoundError as e:
         log.info(e)
@@ -324,6 +337,26 @@ def get_compounds(identifier, namespace='cid', searchtype=None, as_dataframe=Fal
         return compounds_to_frame(compounds)
     return compounds
 
+def get_compounds_by_target(identifier, namespace='cid', searchtype=None, as_dataframe=False, **kwargs):
+    """Retrieve the specified compound records from PubChem.
+
+    :param identifier: The compound identifier to use as a search query.
+    :param namespace: (optional) The identifier type, one of cid, name, smiles, sdf, inchi, inchikey or formula.
+    :param searchtype: (optional) The advanced search type, one of substructure, superstructure or similarity.
+    :param as_dataframe: (optional) Automatically extract the :class:`~pubchempy.Compound` properties into a pandas
+                         :class:`~pandas.DataFrame` and return that.
+    """
+    print(identifier, namespace, searchtype)
+    print(kwargs)
+    results = get(identifier, namespace, searchtype=searchtype, **kwargs)
+
+    import pandas as pd
+    import io
+    final = pd.read_csv(io.StringIO(results.decode('utf-8')))
+
+    print(final['cid'])
+
+    return final
 
 def get_substances(identifier, namespace='sid', as_dataframe=False, **kwargs):
     """Retrieve the specified substance records from PubChem.
@@ -1348,6 +1381,64 @@ class ServerError(PubChemHTTPError):
     def __init__(self, msg='Some problem on the server side'):
         self.msg = msg
 
+class SDQQuery(object):
+    """Class to represent an query to the SDQ PubChem agent."""
+
+    def __init__(self, identifier, namespace="geneid", collection=None, limit=1000000, filename="sdq_query", compressed=0, downformat='csv', **kwargs):
+        """Initialize with an identifier, namespace (scopes the identifier), and data collection to download."""
+        """For example to download c-Myc crystal structures: identifier=4906, namespace=geneid, collection=rcsb"""
+        self.format = downformat
+        self.identifier = identifier
+        self.namespace = namespace
+        self.collection = collection
+        self.start = 1
+        self.limit = limit
+        self.downloadfilename = filename
+        self.compressed = compressed
+        from string import Template
+        # Create a template that has placeholder for query
+        self.t = Template("&outfmt=$format&query={%22download%22:%22*%22,%22collection%22:%22$collection%22,%22where%22:{%22ands%22:[{%22$namespace%22:%22$identifier%22},{%22cid%22:%22notnull%22}]},%22start%22:$start,%22limit%22:$limit,%22downloadfilename%22:%$downloadfilename%22}&compress=$compressed")
+        self.suffixquery = self.t.substitute({'format' : self.format,
+        'collection' : self.collection, 
+        'namespace' : self.namespace, 
+        'identifier' : self.identifier,
+        'start' : self.start,
+        'limit' : self.limit,
+        'downloadfilename' : self.downloadfilename,
+        'compressed' : self.compressed
+        })
+        self.query = API_BASE["sdq"]+self.suffixquery
+        print (self.query)
+
+# abbreviations for collections
+GENE_COLLECTION_MAP = {
+    'rcsb': 'pdb',
+    'af': 'alphafold',
+    'testedcomp': 'bioactivity',
+    'drug': 'drugbank',
+    'smallmolassay': 'bioassay',
+    'rnaiassay': 'rnai',
+    'ctd_gene_disease': 'ctd_gene_disease',
+    'geneint': 'geneinteractions',
+    'dgidb': 'dgidb',
+    'ctdchemicalgene': 'ctdchemicalgene',
+    'pathway': 'pathway'
+}
+
+
+GENE_COLLECTION_DESCRIPTIONS_MAP = {
+    'pdb':"Protein 3D structures from RCSB Protein Data Bank (PDB)",
+    'alphafold':"Protein 3D structures predicted by the AI system AlphaFold developed by DeepMind at Google. The image is generated by the iCn3D structure viewer developed at NCBI.",
+    'bioactivity':"Compounds tested against this target in any assay deposited in PubChem BioAssay",
+    'drugbank':"Drugs from DrugBank associated with this target",
+    'bioassay':"Bioassays that tested small-molecule chemicals ",
+    'rnai':"Functional genomic bioassays that tested RNAi reagents",
+    'ctd_gene_disease':"Diseases associate with this gene provided by the Comparative Toxicogenomics Database (CTD)",
+    'geneinteractions':"Genes that are known to interact with this gene target and have associated assay data in PubChem",
+    'dgidb':"Drug-gene interactions provided by the Drug Gene Interaction Database (DGIdb)",
+    'ctdchemicalgene':"Chemical-gene interactions provided by the Comparative Toxicogenomics Database (CTD)",
+    'pathway':"Pathways in which the gene is involved"
+}
 
 if __name__ == '__main__':
     print(__version__)
