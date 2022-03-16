@@ -271,7 +271,7 @@ def request(identifier, namespace='cid', domain='compound', operation=None, outp
             apiurl += '?%s' % urlencode(kwargs)
     else:
         print("SDQ query class developed by Greg Schwing https://github.com/GregorySchwing")
-        print(kwargs.items())
+        #print(kwargs.items())
         q = SDQQuery(identifier,namespace,**kwargs)
         apiurl=q.query
     
