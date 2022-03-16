@@ -307,8 +307,6 @@ def get(identifier, namespace='cid', domain='compound', operation=None, output='
 def get_json(identifier, namespace='cid', domain='compound', operation=None, searchtype=None, **kwargs):
     """Request wrapper that automatically parses JSON response and supresses NotFoundError."""
     try:
-        print(identifier, namespace, searchtype)
-        print(kwargs)
         return json.loads(get(identifier, namespace, domain, operation, 'JSON', searchtype, **kwargs).decode())
     except NotFoundError as e:
         log.info(e)
@@ -353,10 +351,10 @@ def get_compounds_by_target(identifier, namespace='cid', searchtype=None, as_dat
     import pandas as pd
     import io
     final = pd.read_csv(io.StringIO(results.decode('utf-8')))
-
-    print(final['cid'])
-
-    return final
+    print(final['cid'].head().to_list())
+    compounds = get_compounds(final['cid'].head().to_list(), namespace='cid')
+    print(compounds)
+    return compounds
 
 def get_substances(identifier, namespace='sid', as_dataframe=False, **kwargs):
     """Retrieve the specified substance records from PubChem.
