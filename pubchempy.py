@@ -359,7 +359,10 @@ def get_compounds_by_target(identifier, namespace='cid', searchtype=None, as_dat
     trancheSize=1000
     numTranches = int(math.ceil(len(cids)/trancheSize))
     trancheList = []
-    for tranchID in range(0, numTranches,1):
+    print("Downloading %s compounds\n" % numCids)
+    from time import sleep
+    from tqdm import tqdm
+    for tranchID in tqdm(range(0, numTranches,1)):
         ub = min(numCids,(tranchID+1)*trancheSize)
         compound_chunk = get_compounds(cids[tranchID*trancheSize:ub], namespace='cid', as_dataframe=True)
         trancheList.append(compound_chunk)
