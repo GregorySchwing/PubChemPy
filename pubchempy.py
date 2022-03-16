@@ -350,11 +350,21 @@ def get_compounds_by_target(identifier, namespace='cid', searchtype=None, as_dat
 
     import pandas as pd
     import io
+    import numpy as np
+    import math
     final = pd.read_csv(io.StringIO(results.decode('utf-8')))
     print(final['cid'].head().to_list())
-    compounds = get_compounds(final['cid'].head().to_list(), namespace='cid')
-    print(compounds)
-    return compounds
+    cids = final['cid'].to_list()
+    numCids = len(cids)
+    trancheSize=1000
+    numTranches = int(math.ceil(len(cids)/trancheSize))
+    trancheList = []
+    for tranchID in range(0, numTranches,1):
+        ub = min(numCids,(tranchID+1)*trancheSize)
+        compound_chunk = get_compounds(cids[tranchID*trancheSize:ub], namespace='cid', as_dataframe=True)
+        trancheList.append(compound_chunk)
+
+    return pd.concat(trancheList)
 
 def get_substances(identifier, namespace='sid', as_dataframe=False, **kwargs):
     """Retrieve the specified substance records from PubChem.
